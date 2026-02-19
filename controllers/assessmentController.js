@@ -1,5 +1,13 @@
 const db = require('../config/mysql');
 
+const toPositiveInt = (value, fallback) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+};
+
 /* ================================
    CREATE ASSESSMENT (Assessor only)
 ================================ */
@@ -24,7 +32,7 @@ exports.createAssessment = async (req, res) => {
       final_remark
     } = req.body;
 
-    // ✅ Convert scores safely
+    // Convert scores safely
     const scores = {
       knowledge_stem: Number(req.body.knowledge_stem) || 0,
       stem_integration: Number(req.body.stem_integration) || 0,
@@ -52,8 +60,8 @@ exports.createAssessment = async (req, res) => {
       scores.voice_modulation +
       scores.professional_appearance;
 
-    // ✅ ENUM is string
-    const status = attempt_number === "3" ? "COMPLETED" : "PENDING";
+    // ENUM is string
+    const status = Number(attempt_number) === 3 ? 'COMPLETED' : 'PENDING';
 
     const sql = `
       INSERT INTO assessments (
@@ -119,13 +127,13 @@ exports.createAssessment = async (req, res) => {
     ]);
 
     res.status(201).json({
-      message: "Assessment created successfully",
+      message: 'Assessment created successfully',
       total_score,
       status
     });
 
   } catch (error) {
-    console.log("CREATE ERROR:", error);
+    console.log('CREATE ERROR:', error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -146,9 +154,8 @@ exports.getUserByEmail = async (req, res) => {
       [email]
     );
 
-
     if (rows.length === 0) {
-      return res.status(404).json({ message: "Trainer not found" });
+      return res.status(404).json({ message: 'Trainer not found' });
     }
 
     res.json(rows[0]);
@@ -157,8 +164,6 @@ exports.getUserByEmail = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
-
-
 
 /* ================================
    GET ASSESSMENT BY ID
@@ -168,12 +173,12 @@ exports.getAssessmentById = async (req, res) => {
     const { id } = req.params;
 
     const [rows] = await db.query(
-      "SELECT * FROM assessments WHERE assessment_id = ?",
+      'SELECT * FROM assessments WHERE assessment_id = ?',
       [id]
     );
 
     if (rows.length === 0) {
-      return res.status(404).json({ message: "Assessment not found" });
+      return res.status(404).json({ message: 'Assessment not found' });
     }
 
     res.json(rows[0]);
@@ -183,7 +188,6 @@ exports.getAssessmentById = async (req, res) => {
   }
 };
 
-
 /* ================================
    GET ASSESSMENTS (Role-based)
 ================================ */
@@ -191,35 +195,98 @@ exports.getAssessments = async (req, res) => {
   try {
 
     const { role } = req.user;
-    const { branch, team } = req.query;
+    const search = typeof req.query.search === 'string'
+      ? req.query.search.trim()
+      : '';
+    const branch = typeof req.query.branch === 'string'
+      ? req.query.branch.trim()
+      : '';
+    const team = typeof req.query.team === 'string'
+      ? req.query.team.trim()
+      : '';
 
-    let sql = `SELECT * FROM assessments WHERE 1=1`;
-    const params = [];
+    const hasQueryParams =
+      req.query.page !== undefined ||
+      req.query.limit !== undefined ||
+      req.query.search !== undefined ||
+      req.query.branch !== undefined ||
+      req.query.team !== undefined;
 
-    // ✅ Trainer filtering via email
+    const whereClauses = ['1=1'];
+    const whereParams = [];
+
+    // Trainer sees only own rows
     if (role === 'trainer') {
-      sql += ` AND trainer_email = ?`;
-      params.push(req.user.email);
+      whereClauses.push('trainer_email = ?');
+      whereParams.push(req.user.email);
+    }
+
+    if (search) {
+      whereClauses.push(
+        '(trainer_name LIKE ? OR trainer_email LIKE ? OR course_name LIKE ?)'
+      );
+      const searchTerm = `%${search}%`;
+      whereParams.push(searchTerm, searchTerm, searchTerm);
     }
 
     if (branch) {
-      sql += ` AND branch = ?`;
-      params.push(branch);
+      whereClauses.push('branch LIKE ?');
+      whereParams.push(`%${branch}%`);
     }
 
     if (team) {
-      sql += ` AND team = ?`;
-      params.push(team);
+      whereClauses.push('team LIKE ?');
+      whereParams.push(`%${team}%`);
     }
 
-    const [rows] = await db.query(sql, params);
-    res.json(rows);
+    const whereSql = whereClauses.join(' AND ');
+
+    // Backward compatibility: if no filter/paging query, return full array.
+    if (!hasQueryParams) {
+      const [rows] = await db.query(
+        `SELECT * FROM assessments WHERE ${whereSql} ORDER BY assessment_id DESC`,
+        whereParams
+      );
+      return res.json(rows);
+    }
+
+    const page = toPositiveInt(req.query.page, 1);
+    const limit = Math.min(toPositiveInt(req.query.limit, 25), 100);
+
+    const [countRows] = await db.query(
+      `SELECT COUNT(*) AS total FROM assessments WHERE ${whereSql}`,
+      whereParams
+    );
+
+    const total = Number(countRows?.[0]?.total || 0);
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const currentPage = Math.min(page, totalPages);
+    const offset = (currentPage - 1) * limit;
+
+    const [rows] = await db.query(
+      `SELECT * FROM assessments
+       WHERE ${whereSql}
+       ORDER BY assessment_id DESC
+       LIMIT ? OFFSET ?`,
+      [...whereParams, limit, offset]
+    );
+
+    res.json({
+      items: rows,
+      pagination: {
+        total,
+        page: currentPage,
+        limit,
+        totalPages,
+        hasNextPage: currentPage < totalPages,
+        hasPreviousPage: currentPage > 1
+      }
+    });
 
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
-
 
 /* ================================
    UPDATE ATTEMPT
@@ -270,7 +337,7 @@ exports.updateAttempt = async (req, res) => {
       scores.voice_modulation +
       scores.professional_appearance;
 
-    const status = newAttempt === '3' ? 'COMPLETED' : 'PENDING';
+    const status = newAttempt === 3 ? 'COMPLETED' : 'PENDING';
 
     const sql = `
       UPDATE assessments

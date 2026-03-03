@@ -51,6 +51,22 @@ Default local URL: `http://localhost:5000`
 - `DB_SSL` (`true` or `false`)
 - `DB_SSL_REJECT_UNAUTHORIZED` (`true` or `false`)
 
+### SMTP (required for forgot-password OTP email)
+- `SMTP_HOST`
+- `SMTP_PORT` (default `587`)
+- `SMTP_SECURE` (`true` or `false`)
+- `SMTP_USER`
+- `SMTP_PASS`
+- `SMTP_FROM`
+
+### Password reset OTP
+- `PASSWORD_RESET_OTP_MINUTES` (default `10`)
+- `PASSWORD_RESET_OTP_COOLDOWN_SECONDS` (default `60`)
+- `PASSWORD_RESET_OTP_MAX_ATTEMPTS` (default `5`)
+- `PASSWORD_RESET_SESSION_MINUTES` (default `15`)
+- `PASSWORD_RESET_MIN_PASSWORD_LENGTH` (default `8`)
+- `PASSWORD_RESET_OTP_SECRET` (optional, falls back to `JWT_SECRET`)
+
 ## API overview
 
 ### Health
@@ -58,6 +74,11 @@ Default local URL: `http://localhost:5000`
 
 ### Auth
 - `POST /api/auth/login`
+- `POST /api/auth/register-trainer`
+- `POST /api/auth/forgot-password/request`
+- `POST /api/auth/forgot-password/verify`
+- `POST /api/auth/forgot-password/reset`
+- `POST /api/auth/test/send-otp`
 
 ### Assessments
 - `POST /api/assessments`
@@ -103,7 +124,7 @@ Default local URL: `http://localhost:5000`
 
 ### Controllers
 - `controllers/authController.js`
-  Login flow: user lookup, password verification, token generation.
+  Login flow, trainer self-registration, forgot-password OTP flow (request + reset), and test OTP mail route.
 - `controllers/assessmentController.js`
   Create/read/update assessment flows and trainer lookup.
   Includes server-side filter + pagination logic for list endpoint.
@@ -113,6 +134,10 @@ Default local URL: `http://localhost:5000`
   Helper script to hash passwords for seed/setup usage.
 - `utils/mysqlTest.js`
   Helper script to verify database connectivity.
+- `utils/mailService.js`
+  SMTP mail transport and reusable `sendOTP(email, otp)` sender.
+- `utils/generateOTP.js`
+  Reusable numeric OTP generator.
 
 ## Production notes
 

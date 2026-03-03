@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
 
-const passwords = ['admin123', 'trainer123', 'assessor123'];
+const passwords = ['admin123', 'trainer123', 'assessor123','1231'];
 
 passwords.forEach(pwd => {
   const hash = bcrypt.hashSync(pwd, 10);
